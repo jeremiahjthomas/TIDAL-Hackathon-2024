@@ -4,14 +4,10 @@ from sklearn.preprocessing import MultiLabelBinarizer
 import requests
 import streamlit as st
 
-# Function to get image URL from Unsplash API
-def get_spoonacular_image(dish_name):
-    api_key = '0ad66ba7f04645daa66a32039649fd52'  # Replace with your Spoonacular API Key
-    url = f"https://api.spoonacular.com/recipes/complexSearch?query={dish_name}&apiKey={api_key}&number=1"
-    response = requests.get(url).json()
-    if response['results']:
-        return response['results'][0]['image']
-    return None
+def softmax(x):
+    x_shifted = x - np.max(x, axis=-1, keepdims=True)
+    exp_x = np.exp(x_shifted)
+    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
 # feature engineering
 # pd.set_option('future.no_silent_downcasting', True)
@@ -48,14 +44,14 @@ names = df3["name"].copy()
 file_path = 'indian_food.csv' 
 df = pd.read_csv(file_path)
 
-st.title('Food Recommender')
+st.image("dishcoverlogo.png", caption=None, width=None, use_column_width=None, clamp=False, channels="RGB", output_format="auto")
 
 # Unique course types (appetizer, main course, dessert, etc.)
 courses = df['course'].unique()
 
 # Separate selection for each course
 for course in courses:
-    st.header(f"{course.capitalize()}")
+    st.title(f"{course.capitalize()}")
     selected_dishes = st.multiselect(
         f"Select {course} dishes", 
         df[df['course'] == course]['name'].unique()
@@ -63,45 +59,49 @@ for course in courses:
 
     # Display selected dishes with fetched images
     if selected_dishes:
-        st.write(f"Recommended {course} dishes:")
         selected_df = df[df['name'].isin(selected_dishes)]
+        for dish in selected_dishes:
+            inputidx = df.index.get_loc(df[df['name'] == dish].index[0])
+            cosine_similarities = []
+            df4_numerical = df4.drop(columns=["name"])  # Drop 'name' only for numerical purposes
+            df4_numerical = df4_numerical.astype(float)
 
+            v1 = df4_numerical.iloc[inputidx]
 
-        #load image
-        # for _, row in selected_df.iterrows():
-        #     st.subheader(row['name'])
-        #     image_url = get_spoonacular_image(row['name'])
-        #     if image_url:
-        #         st.image(image_url, caption=row['name'])
-        #     else:
-        #         st.write(f"No image found for {row['name']}")
+            # Compute cosine similarities
+            for i in range(len(df4_numerical)):
+                v2 = df4_numerical.iloc[i]
+                cosine_similarities.append(
+                    (np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), i)
+                )
+
+            # Sort the similarities
+            cosine_similarities.sort(reverse=True, key=lambda x: x[0])
+
+            x = 3  # Number of recommendations
+            topx = cosine_similarities[1 : x + 1]  # Skip the first one, which is the input itself
+            # Output
+            cosine_values = np.array([x[0] for x in topx])
+            softmax_probs = softmax(cosine_values)
+            match_percentages = softmax_probs * 100
+            target_percentage = 20.0
+            match_scores = 100 - np.abs(match_percentages - target_percentage)
+            match_scores = np.clip(match_scores, 0, None)
+            
+            
+            # Output
+            st.header(f"Previously enjoyed: {names.iloc[inputidx]}")
+            st.subheader(f"Recommended dishes: ") 
+            for i in range(x):
+                st.markdown(f'{names.iloc[topx[i][1]]} - {match_scores[i]:.2f}%')
+            st.markdown('''
+            <style>
+            [data-testid="stMarkdownContainer"] ul{
+                list-style-position: inside;
+            }
+            </style>
+            ''', unsafe_allow_html=True)
+
 print(selected_dishes)
 
 
-for dish in selected_dishes:
-    inputidx = df.index.get_loc(df[df['name'] == dish].index[0])
-    st.write(dish, inputidx)
-    cosine_similarities = []
-    df4_numerical = df4.drop(columns=["name"])  # Drop 'name' only for numerical purposes
-    df4_numerical = df4_numerical.astype(float)
-
-    v1 = df4_numerical.iloc[inputidx]
-
-    # Compute cosine similarities
-    for i in range(len(df4_numerical)):
-        v2 = df4_numerical.iloc[i]
-        cosine_similarities.append(
-            (np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), i)
-        )
-
-    # Sort the similarities
-    cosine_similarities.sort(reverse=True, key=lambda x: x[0])
-
-    x = 5  # Number of recommendations
-    topx = cosine_similarities[1 : x + 1]  # Skip the first one, which is the input itself
-
-    # Output
-    st.write(f"Previously enjoyed: {names.iloc[inputidx]}")
-    st.write(f"Recommended dishes: ") 
-    for i in range(x):
-        st.write(names.iloc[topx[i][1]])
